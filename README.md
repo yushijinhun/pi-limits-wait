@@ -248,7 +248,7 @@ Each `fallback-models` entry supports:
 
 - `provider` — required. The Pi provider name, for example `anthropic`, `openai`, `google`, etc.
 - `modelname` — required. The model id/name as Pi knows it.
-- `reasoning effort` — optional. One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. If omitted, Pi's current/default reasoning level is used.
+- `reasoning effort` — optional. One of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. If omitted, the model uses the thinking level Pi sent with the request, including `off`.
 
 Top-level settings keys:
 

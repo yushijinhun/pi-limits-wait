@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   DEFAULT_PROBE_INTERVAL_MS,
   DEFAULT_UNKNOWN_ERROR_MAX_RETRIES,
@@ -20,7 +20,6 @@ export const state = {
   // How often a still-limited higher-priority model is re-probed. 0 disables.
   probeIntervalMs: DEFAULT_PROBE_INTERVAL_MS,
   primaryModel: undefined as Model<Api> | undefined,
-  primaryThinkingLevel: undefined as ModelThinkingLevel | undefined,
   manualModelOverride: undefined as Model<Api> | undefined,
   manualModelOverrideReleased: false,
   expectedModelSelections: new Map<string, Set<symbol>>(),
@@ -63,7 +62,6 @@ export function resetRuntimeStateForTests(models: FallbackModel[], ctx?: Extensi
   state.probeIntervalMs = DEFAULT_PROBE_INTERVAL_MS;
   state.sharedCtx = ctx;
   state.primaryModel = undefined;
-  state.primaryThinkingLevel = undefined;
   state.manualModelOverride = undefined;
   state.manualModelOverrideReleased = false;
   state.rateLimitMemory.clear();

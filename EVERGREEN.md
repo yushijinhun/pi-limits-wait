@@ -40,6 +40,7 @@ OAuth prompt cleaning depends on Pi's exact identity/payload shape; cache-warmin
 `src/__tests__/test-integration.ts` drives a real SDK session/extension runner with isolated dummy providers:
 primary rate limit -> fallback unknown error -> retry success; asserts model commitment, one accurate summary,
 no failed assistant turns, next-turn continuity, and exclusion of summary metadata from model context.
+It then checks that requests use Pi's current thinking level and fallbacks keep it unless their entry sets one.
 `npm run test:e2e:evergreen` uses `scripts/test-evergreen-e2e.mjs`, real global Pi print/JSON mode,
 ignored stdin, local retry/kill-switch/waiting-disabled cases, and a live model with persisted-session checks.
 Retry cases explicitly enable waiting; `PI_LIMITS_WAIT_DEFAULT_WAITING=false` must surface even classified rate limits without retrying.

@@ -9,6 +9,7 @@ import {
   type AssistantMessageEventStream,
   type Context,
   type Model,
+  type ModelThinkingLevel,
   type ModelsSimpleStreamOptions,
   type ProviderResponse,
 } from "@earendil-works/pi-ai";
@@ -64,7 +65,6 @@ export function __configureFallbackModelsForTests(models: FallbackModel[], ctx?:
   state.probeIntervalMs = DEFAULT_PROBE_INTERVAL_MS;
   state.sharedCtx = ctx;
   state.primaryModel = undefined;
-  state.primaryThinkingLevel = undefined;
   state.manualModelOverride = undefined;
   state.manualModelOverrideReleased = false;
   state.rateLimitMemory.clear();
@@ -141,23 +141,19 @@ function errorHttpMetadata(error: unknown): string | undefined {
 
 function attemptOptions(
   originalModel: Model<Api>,
-  target: FallbackModel,
+  target: Model<Api>,
+  thinkingLevel: ModelThinkingLevel,
   options: ModelsSimpleStreamOptions | undefined,
   signal: AbortSignal | undefined,
   onPayload: ModelsSimpleStreamOptions["onPayload"],
   onResponse: ModelsSimpleStreamOptions["onResponse"],
 ): ModelsSimpleStreamOptions | undefined {
-  const reasoningLevel = target.reasoningEffort ?? state.primaryThinkingLevel;
-  const reasoning = reasoningLevel && reasoningLevel !== "off" ? reasoningLevel : undefined;
-  const common = { ...(signal ? { signal } : {}), onPayload, onResponse };
+  const reasoning = thinkingLevel === "off" ? undefined : thinkingLevel;
 
   // Exact-model retries preserve every option. Any different model, including
   // one on the same provider, must resolve its own request-owned configuration.
-  if (modelKey(originalModel) === modelKey(target.model)) {
-    const exact = { ...options, ...common };
-    if (reasoningLevel === "off") delete exact.reasoning;
-    else if (reasoning) exact.reasoning = reasoning;
-    return exact;
+  if (modelKey(originalModel) === modelKey(target)) {
+    return { ...options, ...(signal ? { signal } : {}), onPayload, onResponse, reasoning };
   }
 
   // Whitelist transport-neutral controls so credentials, headers, env,
@@ -213,7 +209,11 @@ export function streamWithLimitsRetry(
     const allowFallback = fallbackEnabled() && isFallbackEligibleModel(model);
     let attempt: FallbackModel = allowFallback
       ? initialAttempt(model) ?? configuredAttempt(model)
-      : { model, reasoningEffort: state.primaryThinkingLevel };
+      : { model };
+    // Pi resolves the thinking level per request. Attempts use it unless their
+    // model's entry configures one.
+    let requestThinkingLevel: ModelThinkingLevel = options?.reasoning ?? "off";
+    const attemptThinkingLevel = () => attempt.reasoningEffort ?? requestThinkingLevel;
     const nonRetryableAttempts = new Map<string, number>();
     const triedModels = new Set<string>();
     let lastExhaustedFailure: string | undefined;
@@ -248,7 +248,7 @@ export function streamWithLimitsRetry(
         return currentKey === originalKey || currentKey === attemptKey;
       };
       if (!canSelect(state.sharedCtx?.model)) return false;
-      return switchPiModel(attempt, signal, canSelect);
+      return switchPiModel(attempt.model, attemptThinkingLevel(), signal, canSelect);
     };
 
     const managedWait = async (
@@ -297,8 +297,10 @@ export function streamWithLimitsRetry(
         observedUserModelSelection = state.userModelSelectionGeneration;
         const selected = state.primaryModel ?? state.sharedCtx?.model;
         if (selected) {
-          // Try the user's exact choice, not the first configured candidate.
+          // Try the user's exact choice, not the first configured candidate,
+          // at the thinking level Pi applied with that choice.
           attempt = configuredAttempt(selected);
+          requestThinkingLevel = state.extensionApi?.getThinkingLevel() ?? requestThinkingLevel;
           forceAttemptAfterSkip = true;
           nonRetryableAttempts.clear();
           triedModels.clear();
@@ -431,7 +433,7 @@ export function streamWithLimitsRetry(
             pushAbort("Operation aborted before provider invocation.");
             return;
           }
-          const currentOptions = attemptOptions(model, attempt, options, signal, onPayload, onResponse);
+          const currentOptions = attemptOptions(model, attempt.model, attemptThinkingLevel(), options, signal, onPayload, onResponse);
           if (probe) markProbeAttempt(attempt.model);
           const inner = delegate.call(runtime, attempt.model, context, currentOptions);
           for await (const event of inner) {

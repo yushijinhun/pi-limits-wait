@@ -1,4 +1,4 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { DEFAULT_NON_RETRYABLE_FREEZE_MS } from "./constants.js";
 import { expectModelSelection, state } from "./state.js";
 import { parseRetryDelayMs } from "./retry-errors.js";
@@ -35,7 +35,7 @@ export function getPrimaryModel(current: Model<Api>): Model<Api> {
 
 export function configuredAttempt(model: Model<Api>): FallbackModel {
   return state.fallbackModels.find((entry) => modelKey(entry.model) === modelKey(model))
-    ?? { model, reasoningEffort: state.primaryThinkingLevel };
+    ?? { model };
 }
 
 /**
@@ -231,7 +231,8 @@ export function initialAttempt(model: Model<Api>): FallbackModel | undefined {
 let modelSwitchQueue = Promise.resolve();
 
 export async function switchPiModel(
-  entry: FallbackModel,
+  model: Model<Api>,
+  thinkingLevel: ModelThinkingLevel,
   signal?: AbortSignal,
   canSelect?: (current: Model<Api> | undefined) => boolean,
 ): Promise<boolean> {
@@ -241,26 +242,26 @@ export async function switchPiModel(
     const pi = state.extensionApi;
     if (!pi) return;
     const current = state.sharedCtx?.model;
-    if (current && modelKey(current) === modelKey(entry.model)) {
+    if (current && modelKey(current) === modelKey(model)) {
       selected = true;
       return;
     }
     if (canSelect && !canSelect(current)) return;
     if (signal?.aborted) return;
 
-    const cancelExpectedSelection = expectModelSelection(entry.model);
+    const cancelExpectedSelection = expectModelSelection(model);
     try {
-      const ok = await pi.setModel(entry.model);
+      const ok = await pi.setModel(model);
       if (!ok) {
         cancelExpectedSelection();
         return;
       }
       if (signal?.aborted) return;
       selected = true;
-      const level = entry.reasoningEffort ?? state.primaryThinkingLevel;
-      if (level) pi.setThinkingLevel(level);
+      // setModel resets Pi's thinking level to its default; keep the attempt's level.
+      pi.setThinkingLevel(thinkingLevel);
       if (!signal?.aborted) {
-        state.sharedCtx?.ui.notify(`Switched to ${formatModel(entry.model)}${level ? ` (${level})` : ""}.`, "info");
+        state.sharedCtx?.ui.notify(`Switched to ${formatModel(model)} (${thinkingLevel}).`, "info");
       }
     } catch {
       // The request can outlive its session during /reload or replacement. The

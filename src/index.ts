@@ -137,7 +137,6 @@ export default function (pi: ExtensionAPI) {
       state.rateLimitMemory.delete(modelKey(event.model));
       state.nonRetryableFailureMemory.delete(modelKey(event.model));
     }
-    state.primaryThinkingLevel = pi.getThinkingLevel();
     state.userModelSelectionGeneration++;
     // A user-selected model takes precedence over a pending retry. Wake every
     // wait so its stream can adopt the new primary model immediately.
@@ -147,7 +146,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", (_event, ctx) => {
     state.sharedCtx = ctx;
     if (!state.primaryModel && ctx.model && !isInternalSyntheticModel(ctx.model)) state.primaryModel = ctx.model;
-    state.primaryThinkingLevel ??= pi.getThinkingLevel();
     loadFallbackSettings(ctx);
   });
 
