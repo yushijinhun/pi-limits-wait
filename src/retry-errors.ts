@@ -15,6 +15,30 @@ function isExplicitRateLimitError(msg: string): boolean {
   );
 }
 
+/**
+ * The account has nothing left to spend, not a speed limit that resets. Waiting
+ * never fixes this, so the caller tells the owner instead of retrying for hours.
+ */
+export function isQuotaExhaustedError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes("insufficient credit") ||
+    lower.includes("insufficient balance") ||
+    lower.includes("insufficient_quota") ||
+    lower.includes("credit balance") ||
+    lower.includes("out of credits") ||
+    lower.includes("no credits") ||
+    lower.includes("credit limit") ||
+    lower.includes("spend limit") ||
+    lower.includes("exceeded your current quota") ||
+    lower.includes("quota has been exhausted") ||
+    lower.includes("quota exhausted") ||
+    lower.includes("billing") ||
+    lower.includes("payment required") ||
+    /(?:^|\D)402(?:\D|$)/.test(msg)
+  );
+}
+
 export function isRateLimitError(msg: string): boolean {
   const lower = msg.toLowerCase();
   return (

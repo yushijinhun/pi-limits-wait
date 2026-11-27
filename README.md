@@ -271,11 +271,22 @@ Fallback priority and manual selection:
 
 The extension rereads these files before every LLM call, so changes made during a long-running task take effect on the next LLM call without restarting Pi or using `/reload`. Tool calls do not trigger a settings read. When the settings are loaded, the extension shows the full usable fallback model list. When models become rate-limited, it reports the wait in chat notifications.
 
+## Telegram notifications
+
+The owner is usually not looking at the terminal when a provider says "come back in 20 minutes". This extension reads the bot token from `telegram-notification.json` in the Pi agent directory (the file the [telegram-notification](https://github.com/yushijinhun/pi-telegram-notification) extension uses, usually a symlink to the host's credential file) and sends a message for two cases only:
+
+- **A rate limit it is waiting out** — once per retry period, on its first wait: the session, the model, the attempt, how long the wait is, the local clock time of the retry, and the provider's own wording.
+- **A quota that is spent** — `insufficient credit`, `insufficient_quota`, `credit balance`, `billing`, `402`, and similar wording. Waiting cannot refill a balance, so the message says so instead of promising a retry. This fires even when the error is not classified as a rate limit.
+- **Retrying stopped** — when the extension gives up on a rate limit, one final message says there will be no more retries.
+
+Network and overload waits stay silent; they usually resolve in seconds. One message per retry period is deliberate: the extension retries for as long as the provider keeps refusing, so reporting every attempt would flood the phone. Later waits of the same period stay silent; a new period, or the next outage after a request completes, reports again. Messages are best effort and never block a retry — a failed or slow request to Telegram is dropped after 8 seconds. No token file means no notifications, not an error.
+
 ## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PI_LIMITS_WAIT_DISABLE_ALL_WAITING` | `false` | Master kill switch for this extension's error handling, retries, fallbacks, freezing, waiting, notifications, telemetry, and retry summaries. Set to `true` (also accepts `1`, `yes`, `on`) to leave only Anthropic OAuth system-prompt cleaning enabled; requests continue through Pi's normal runtime, including its normal Anthropic headers. This takes precedence over every setting below. |
+| `PI_LIMITS_WAIT_TELEGRAM` | `true` | Whether to send a Telegram message when the extension has to wait out a rate limit, and when a provider says the account is out of credit. Set to `false` (also accepts `0`, `no`, `off`) to send nothing, and `"limitsWaitTelegram": false` in the same `telegram-notification.json` does the same. See [Telegram notifications](#telegram-notifications). |
 | `PI_LIMITS_WAIT_DEFAULT_WAITING` | `true` | Whether the extension ever waits. Set to `false` (also accepts `0`, `no`, `off`) to never wait or retry the same model: on a rate limit, overload, authentication, network or unknown error it immediately moves to the next usable `fallback-models` entry, and surfaces the last error once none is left (or at once without fallback models). Model switching itself is controlled by `fallback-models`. Useful for hosts such as proxies that must answer promptly. |
 | `PI_LIMITS_WAIT_MAX_RETRY` | `999999` | Maximum extension-created retries for an unclassified/unknown provider error. The initial failed request and provider-internal retries do not count. HTTP 400/403 remain eligible. Must be a non-negative integer. |
 | `PI_LIMITS_WAIT_LIVELINESS_INTERVAL` | `15` | Seconds between liveliness notifications published while waiting in non-interactive (`rpc`/`json`) modes. Must be a non-negative integer; values below 1 second are clamped to 1 second. Ignored in TUI mode. Also drives the structured status channel and is reported inside it as `livelinessIntervalMs`. |
