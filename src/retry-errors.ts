@@ -104,18 +104,27 @@ export function isAuthenticationRefreshError(msg: string): boolean {
 }
 
 /**
- * Provider state that cannot heal by waiting: the conversation the request
- * resumes is gone on the provider side (a stale bridge/CLI session boundary,
- * a cut transcript, a session id the CLI no longer knows). Every attempt
- * replays the same failure, so these must surface instead of consuming the
+ * Provider conditions that cannot heal by waiting, because nothing about them
+ * changes between attempts:
+ *
+ * - the conversation the request resumes is gone on the provider side (a stale
+ *   bridge/CLI session boundary, a cut transcript, a session id the CLI no
+ *   longer knows);
+ * - the credential or plan is not allowed to serve this client at all, which an
+ *   administrator has to undo (Claude Code refuses a subscription whose
+ *   organization disabled that access and asks for an API key instead).
+ *
+ * Retrying replays the same failure, so these surface instead of consuming the
  * unknown-error retry budget.
  */
-export function isPermanentSessionStateError(msg: string): boolean {
+export function isPermanentProviderError(msg: string): boolean {
   return (
     /absent from the transcript/i.test(msg) ||
     /\bsession boundary\b/i.test(msg) ||
     /\bsession cut\b/i.test(msg) ||
-    /no conversation found with session id/i.test(msg)
+    /no conversation found with session id/i.test(msg) ||
+    /organization has disabled[^\n]{0,80}access/i.test(msg) ||
+    /subscription access for claude code/i.test(msg)
   );
 }
 

@@ -34,7 +34,7 @@ import limitsWaitExtension, {
   getRetryableError,
   installModelRuntimeInterception,
   isAuthenticationRefreshError,
-  isPermanentSessionStateError,
+  isPermanentProviderError,
   isRateLimitError,
   isServerOverloadedError,
   isTransientNetworkError,
@@ -207,11 +207,13 @@ for (const message of [
   "Cannot resolve a null or empty session boundary",
   "Invalid session cut count 3",
   "No conversation found with session ID bd037fd0",
+  "Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable access",
+  "subscription access for Claude Code is not enabled for this account",
 ]) {
-  ok(`detects permanent session state failure: ${message}`, isPermanentSessionStateError(message));
+  ok(`detects permanent provider failure: ${message.slice(0, 60)}`, isPermanentProviderError(message));
 }
-for (const message of ["Internal server error", "Session expired, please retry", "rate limit reached"]) {
-  ok(`leaves ordinary failure unknown: ${message}`, !isPermanentSessionStateError(message));
+for (const message of ["Internal server error", "Session expired, please retry", "rate limit reached", "organization usage limit reached for this hour"]) {
+  ok(`leaves ordinary failure unknown: ${message}`, !isPermanentProviderError(message));
 }
 {
   const headers = new Headers({ "retry-after": "0.01" });
@@ -1014,24 +1016,29 @@ section("RPC-mode liveliness and terminal errors");
     state.primaryModel = rpcModel;
     state.waitingEnabled = true;
     __setNonRetryableTuningForTests(5, 1);
-    let attempts = 0;
-    const boundary = "Session boundary f8789892-c92b-47e7-9c03-e81288593c30 is absent from the transcript";
-    const delegate = ((model: Model<Api>) => {
-      attempts++;
-      return streamFrom([startEvent(model), errorEvent(model, boundary)]);
-    }) as Parameters<typeof streamWithLimitsRetry>[1];
-    const events = await collect(streamWithLimitsRetry({} as ModelRuntime, delegate, rpcModel, context));
-    const terminal = events.at(-1);
-    const boundaryErrors = notifications.filter((entry) => entry.type === "error");
-    ok(
-      "a permanent session state failure surfaces instead of burning the retry budget",
-      attempts === 1 && terminal?.type === "error"
-        && terminal.error.errorMessage?.includes("absent from the transcript") === true
-        && boundaryErrors.length === 1 && boundaryErrors[0]!.message.includes("not retrying"),
-      `attempts=${attempts} notifications=${JSON.stringify(notifications)}`,
-    );
+    for (const permanent of [
+      "Session boundary f8789892-c92b-47e7-9c03-e81288593c30 is absent from the transcript",
+      "Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable access",
+    ]) {
+      let attempts = 0;
+      notifications.length = 0;
+      const delegate = ((model: Model<Api>) => {
+        attempts++;
+        return streamFrom([startEvent(model), errorEvent(model, permanent)]);
+      }) as Parameters<typeof streamWithLimitsRetry>[1];
+      const events = await collect(streamWithLimitsRetry({} as ModelRuntime, delegate, rpcModel, context));
+      const terminal = events.at(-1);
+      const reported = notifications.filter((entry) => entry.type === "error");
+      ok(
+        `a permanent provider failure surfaces instead of burning the retry budget: ${permanent.slice(0, 40)}`,
+        attempts === 1 && terminal?.type === "error"
+          && terminal.error.errorMessage === permanent
+          && reported.length === 1 && reported[0]!.message.includes("not retrying"),
+        `attempts=${attempts} notifications=${JSON.stringify(notifications)}`,
+      );
+    }
 
-    attempts = 0;
+    let attempts = 0;
     __setNonRetryableTuningForTests(3, 1);
     const unknownDelegate = ((model: Model<Api>) => {
       attempts++;

@@ -36,7 +36,7 @@ import {
 } from "./models.js";
 import { withAttemptResponseObserver } from "./response-observer.js";
 import { fallbackHeaderTransform, installHeaderDispatch } from "./header-dispatch.js";
-import { errorMessageWithCauses, getRetryableError, isAbortMessage, isPermanentSessionStateError, isRateLimitError, parseRetryDelayMs, retryAfterHeaderMs } from "./retry-errors.js";
+import { errorMessageWithCauses, getRetryableError, isAbortMessage, isPermanentProviderError, isRateLimitError, parseRetryDelayMs, retryAfterHeaderMs } from "./retry-errors.js";
 import { notifyLimitsInBackground, resetLimitsNotifications } from "./telegram-notify.js";
 import type { RetryPeriodTracker } from "./retry-summary.js";
 import { loadFallbackSettings } from "./settings.js";
@@ -487,7 +487,7 @@ export function streamWithLimitsRetry(
                 if (retryable) {
                   retryableErrorMessage = errMsg;
                   retryableEvent = surfacedEvent;
-                } else nonRetryableError = { message: errMsg, event: surfacedEvent, permanent: isPermanentSessionStateError(errMsg) };
+                } else nonRetryableError = { message: errMsg, event: surfacedEvent, permanent: isPermanentProviderError(errMsg) };
                 break;
               }
 
@@ -609,7 +609,7 @@ export function streamWithLimitsRetry(
           pushAbort(errMsg || "Operation aborted");
           return;
         } else {
-          nonRetryableError = { message: errMsg, permanent: isPermanentSessionStateError(errMsg) };
+          nonRetryableError = { message: errMsg, permanent: isPermanentProviderError(errMsg) };
         }
       }
 
