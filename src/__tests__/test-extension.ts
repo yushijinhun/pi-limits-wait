@@ -34,6 +34,7 @@ import limitsWaitExtension, {
   getRetryableError,
   installModelRuntimeInterception,
   isAuthenticationRefreshError,
+  isPermanentSessionStateError,
   isRateLimitError,
   isServerOverloadedError,
   isTransientNetworkError,
@@ -201,6 +202,17 @@ ok("classifies Codex abnormal WebSocket closure as network", getRetryableError("
 ok("classifies abnormal WebSocket closure without a reason as network", getRetryableError("WebSocket closed 1006")?.reason === "network");
 ok("classifies connection-ended transport failures as network", getRetryableError("Connection ended")?.reason === "network");
 ok("does not classify WebSocket policy rejection as transient", !isTransientNetworkError("WebSocket closed 1008 Policy violation"));
+for (const message of [
+  "Session boundary f8789892-c92b-47e7-9c03-e81288593c30 is absent from the transcript",
+  "Cannot resolve a null or empty session boundary",
+  "Invalid session cut count 3",
+  "No conversation found with session ID bd037fd0",
+]) {
+  ok(`detects permanent session state failure: ${message}`, isPermanentSessionStateError(message));
+}
+for (const message of ["Internal server error", "Session expired, please retry", "rate limit reached"]) {
+  ok(`leaves ordinary failure unknown: ${message}`, !isPermanentSessionStateError(message));
+}
 {
   const headers = new Headers({ "retry-after": "0.01" });
   ok("reads retry-after response header", retryAfterHeaderMs(headers) === 10);
@@ -992,6 +1004,44 @@ section("RPC-mode liveliness and terminal errors");
       events.at(-1)?.type === "error" && errors.length === 1
         && errors[0]!.message.includes("not retrying") && errors[0]!.message.includes("Internal server error"),
       JSON.stringify(notifications),
+    );
+  }
+
+  {
+    const notifications: Notification[] = [];
+    const statuses: Array<string | undefined> = [];
+    state.sharedCtx = makeCtx(notifications, statuses);
+    state.primaryModel = rpcModel;
+    state.waitingEnabled = true;
+    __setNonRetryableTuningForTests(5, 1);
+    let attempts = 0;
+    const boundary = "Session boundary f8789892-c92b-47e7-9c03-e81288593c30 is absent from the transcript";
+    const delegate = ((model: Model<Api>) => {
+      attempts++;
+      return streamFrom([startEvent(model), errorEvent(model, boundary)]);
+    }) as Parameters<typeof streamWithLimitsRetry>[1];
+    const events = await collect(streamWithLimitsRetry({} as ModelRuntime, delegate, rpcModel, context));
+    const terminal = events.at(-1);
+    const boundaryErrors = notifications.filter((entry) => entry.type === "error");
+    ok(
+      "a permanent session state failure surfaces instead of burning the retry budget",
+      attempts === 1 && terminal?.type === "error"
+        && terminal.error.errorMessage?.includes("absent from the transcript") === true
+        && boundaryErrors.length === 1 && boundaryErrors[0]!.message.includes("not retrying"),
+      `attempts=${attempts} notifications=${JSON.stringify(notifications)}`,
+    );
+
+    attempts = 0;
+    __setNonRetryableTuningForTests(3, 1);
+    const unknownDelegate = ((model: Model<Api>) => {
+      attempts++;
+      return streamFrom([startEvent(model), errorEvent(model, "Internal server error")]);
+    }) as Parameters<typeof streamWithLimitsRetry>[1];
+    const unknownEvents = await collect(streamWithLimitsRetry({} as ModelRuntime, unknownDelegate, rpcModel, context));
+    ok(
+      "a plain unknown error still uses the retry budget",
+      attempts === 3 && unknownEvents.at(-1)?.type === "error",
+      `attempts=${attempts}`,
     );
   }
 

@@ -36,7 +36,7 @@ import {
 } from "./models.js";
 import { withAttemptResponseObserver } from "./response-observer.js";
 import { fallbackHeaderTransform, installHeaderDispatch } from "./header-dispatch.js";
-import { errorMessageWithCauses, getRetryableError, isAbortMessage, isRateLimitError, parseRetryDelayMs, retryAfterHeaderMs } from "./retry-errors.js";
+import { errorMessageWithCauses, getRetryableError, isAbortMessage, isPermanentSessionStateError, isRateLimitError, parseRetryDelayMs, retryAfterHeaderMs } from "./retry-errors.js";
 import { notifyLimitsInBackground, resetLimitsNotifications } from "./telegram-notify.js";
 import type { RetryPeriodTracker } from "./retry-summary.js";
 import { loadFallbackSettings } from "./settings.js";
@@ -340,7 +340,7 @@ export function streamWithLimitsRetry(
       let retryable: RetryableError | undefined;
       let retryableErrorMessage = "";
       let retryableEvent: AssistantMessageEvent | undefined;
-      let nonRetryableError: { message: string; event?: AssistantMessageEvent } | undefined;
+      let nonRetryableError: { message: string; event?: AssistantMessageEvent; permanent: boolean } | undefined;
       let observedHttpError: string | undefined;
       let providerPayloadReady = false;
       let providerRequestUrl: string | undefined;
@@ -487,7 +487,7 @@ export function streamWithLimitsRetry(
                 if (retryable) {
                   retryableErrorMessage = errMsg;
                   retryableEvent = surfacedEvent;
-                } else nonRetryableError = { message: errMsg, event: surfacedEvent };
+                } else nonRetryableError = { message: errMsg, event: surfacedEvent, permanent: isPermanentSessionStateError(errMsg) };
                 break;
               }
 
@@ -609,7 +609,7 @@ export function streamWithLimitsRetry(
           pushAbort(errMsg || "Operation aborted");
           return;
         } else {
-          nonRetryableError = { message: errMsg };
+          nonRetryableError = { message: errMsg, permanent: isPermanentSessionStateError(errMsg) };
         }
       }
 
@@ -675,12 +675,16 @@ export function streamWithLimitsRetry(
 
       if (!retryable) {
         const failureMessage = nonRetryableError?.message ?? "Provider stream ended without a terminal event.";
+        // A permanent session-state failure replays identically on every attempt,
+        // so spend no unknown-error budget on it: move on to a fallback model or
+        // surface the error instead of hiding it behind an endless retry loop.
+        const permanent = nonRetryableError?.permanent === true;
 
         if (!committed) {
           const key = modelKey(attempt.model);
           const attempts = (nonRetryableAttempts.get(key) ?? 0) + 1;
           nonRetryableAttempts.set(key, attempts);
-          if (!probe && state.waitingEnabled && attempts < state.nonRetryableMaxAttempts) {
+          if (!probe && !permanent && state.waitingEnabled && attempts < state.nonRetryableMaxAttempts) {
             notifyRetryingAfterError(attempt.model, state.nonRetryableRetryDelayMs, failureMessage);
             retryPeriod?.beginRetry(failureMessage);
             const wait = await managedWait("retry", state.nonRetryableRetryDelayMs, failureMessage, {

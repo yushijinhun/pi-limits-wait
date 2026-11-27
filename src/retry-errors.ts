@@ -103,6 +103,22 @@ export function isAuthenticationRefreshError(msg: string): boolean {
   );
 }
 
+/**
+ * Provider state that cannot heal by waiting: the conversation the request
+ * resumes is gone on the provider side (a stale bridge/CLI session boundary,
+ * a cut transcript, a session id the CLI no longer knows). Every attempt
+ * replays the same failure, so these must surface instead of consuming the
+ * unknown-error retry budget.
+ */
+export function isPermanentSessionStateError(msg: string): boolean {
+  return (
+    /absent from the transcript/i.test(msg) ||
+    /\bsession boundary\b/i.test(msg) ||
+    /\bsession cut\b/i.test(msg) ||
+    /no conversation found with session id/i.test(msg)
+  );
+}
+
 function msUntilTimestamp(timestampMs: number): number | undefined {
   if (!Number.isFinite(timestampMs)) return undefined;
   return Math.max(0, timestampMs - Date.now());

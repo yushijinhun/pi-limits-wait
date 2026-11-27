@@ -11,6 +11,7 @@ export { sanitiseAnthropicPayloadSystem, sanitiseSystemPrompt } from "./prompt.j
 export {
   getRetryableError,
   isAuthenticationRefreshError,
+  isPermanentSessionStateError,
   isRateLimitError,
   isServerOverloadedError,
   isTransientNetworkError,
