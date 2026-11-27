@@ -16,6 +16,7 @@ import {
   RETRY_INTERVAL_ENV_VAR,
 } from "./constants.js";
 import { state } from "./state.js";
+import { notifyLimitsInBackground } from "./telegram-notify.js";
 import {
   clearStatusJson,
   controlFilePath,
@@ -369,6 +370,17 @@ export function waitForRetry(
   const plannedDeadline = startedAt + waitMs;
   const waitId = createWaitId();
   const model = waitModel(telemetry?.model);
+  // The owner is not watching the terminal; tell the phone, once per episode.
+  notifyLimitsInBackground({
+    kind: "waiting",
+    ...(telemetry?.periodId ? { period: telemetry.periodId } : {}),
+    reason,
+    waitMs,
+    ...(model ? { model: `${model.provider}/${model.id}` } : {}),
+    ...(telemetry?.error ? { detail: formatErrorDetail(telemetry.error) } : {}),
+    attempt: telemetry?.attempt ?? null,
+    maxAttempts: telemetry?.maxAttempts ?? null,
+  });
   const events = telemetry?.events ?? state.extensionApi?.events;
   const common = {
     version: 1 as const,

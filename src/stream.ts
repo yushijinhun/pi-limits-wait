@@ -36,7 +36,8 @@ import {
 } from "./models.js";
 import { withAttemptResponseObserver } from "./response-observer.js";
 import { fallbackHeaderTransform, installHeaderDispatch } from "./header-dispatch.js";
-import { errorMessageWithCauses, getRetryableError, isAbortMessage, parseRetryDelayMs, retryAfterHeaderMs } from "./retry-errors.js";
+import { errorMessageWithCauses, getRetryableError, isAbortMessage, isRateLimitError, parseRetryDelayMs, retryAfterHeaderMs } from "./retry-errors.js";
+import { notifyLimitsInBackground, resetLimitsNotifications } from "./telegram-notify.js";
 import type { RetryPeriodTracker } from "./retry-summary.js";
 import { loadFallbackSettings } from "./settings.js";
 import { state } from "./state.js";
@@ -518,6 +519,8 @@ export function streamWithLimitsRetry(
               if (event.type === "done") {
                 retryPeriod?.finalize();
                 clearLivelinessStatus();
+                // The outage is over: the next rate limit may tell the owner again.
+                resetLimitsNotifications();
               }
               output.push(event);
               if (event.type === "done") {
@@ -640,6 +643,13 @@ export function streamWithLimitsRetry(
       const emitFailure = (failureMessage: string, failureEvent?: AssistantMessageEvent) => {
         retryPeriod?.recordReason(failureMessage);
         retryPeriod?.finalize();
+        notifyLimitsInBackground({
+          kind: "gave-up",
+          ...(retryPeriod?.periodId ? { period: retryPeriod.periodId } : {}),
+          reason: isRateLimitError(failureMessage) ? "rate-limit" : "error",
+          detail: failureMessage,
+          model: formatModel(attempt.model),
+        });
         // No further wait/retry is planned: this is the only error surfaced
         // to non-interactive hosts for this request.
         notifyFinalFailure(
